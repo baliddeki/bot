@@ -1,42 +1,45 @@
-from __future__ import annotations
+"""
+Run Live Trading
+=================
+Entry point for the OB + FVG trading bot.
+"""
 
-import argparse
-import logging
-
-from config import default_strategy_config, default_risk_config
-from data_loader import connect, shutdown
-from live_mt5 import run_live
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+from live_bot import LiveBot
+import config
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Ari-Gaup Gold Live Trader")
-    parser.add_argument(
-        "--balance",
-        type=float,
-        default=500.0,
-        help="Your current account balance (used for position sizing).",
+def main():
+    print("\n" + "!" * 60)
+    print("  OB + FVG TRADING BOT - XAUUSD")
+    print("!" * 60)
+    print(f"\nSymbol:         {config.SYMBOL}")
+    print(f"OB Timeframe:   {config.OB_TIMEFRAME}")
+    print(f"FVG Timeframes: {', '.join(config.FVG_TIMEFRAMES)}")
+    print(
+        f"SL:             {config.SL_PIPS} pips ({config.pips_to_points(config.SL_PIPS)} points)"
     )
-    parser.add_argument("--login", type=int, default=None)
-    parser.add_argument("--password", type=str, default=None)
-    parser.add_argument("--server", type=str, default=None)
-    parser.add_argument(
-        "--poll", type=int, default=15, help="Poll interval in seconds."
-    )
-    args = parser.parse_args()
+    print(f"TP1:            {config.TP1_PIPS} pips (close {config.TP1_CLOSE_PERCENT}%)")
+    print(f"TP2:            {config.TP2_PIPS} pips")
+    print(f"Account Mode:   {config.ACCOUNT_MODE}")
+    print()
 
-    connect(login=args.login, password=args.password, server=args.server)
-    try:
-        cfg = default_strategy_config()
-        risk_cfg = default_risk_config()
-        run_live(cfg, risk_cfg, balance=args.balance, poll_seconds=args.poll)
-    finally:
-        shutdown()
+    if config.ACCOUNT_MODE == "prop":
+        print("PROP FIRM MODE: 0.5% risk, 1.5% max daily loss")
+    else:
+        print("Risk tier will be auto-detected from balance")
+
+    print()
+    print("!" * 60)
+    print("  WARNING: This will place REAL trades on your MT5 account!")
+    print("!" * 60)
+
+    confirm = input("\nType 'YES' to start: ")
+    if confirm != "YES":
+        print("Cancelled.")
+        return
+
+    bot = LiveBot()
+    bot.start()
 
 
 if __name__ == "__main__":

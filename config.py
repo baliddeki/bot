@@ -1,92 +1,129 @@
-from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import List, Literal
+"""
+Configuration for OB + FVG Trading Bot (XAUUSD)
+================================================
+All settings in one place. Edit here, not in other files.
+"""
 
-# ─────────────────────────────────────────────
-#  SYMBOL – hardcoded to XAUUSD only
-# ─────────────────────────────────────────────
-SYMBOL = "XAUUSDm"
+from datetime import datetime
 
-# ─────────────────────────────────────────────
-#  TIMEFRAME LITERALS
-# ─────────────────────────────────────────────
-Timeframe = Literal["M5", "M15", "M30", "H1", "H2"]
+# ============================================================
+# MT5 CONNECTION
+# ============================================================
+MT5_TERMINAL_PATH = (
+    None  # Set to your MT5 path if needed, e.g. "C:/Program Files/MT5/terminal64.exe"
+)
+
+# ============================================================
+# SYMBOL
+# ============================================================
+SYMBOL = "XAUUSD"
+
+# Symbol-specific values (XAUUSD / Gold)
+PIP_SIZE = 0.1  # 1 pip = 0.1 points for gold
+PIP_VALUE_PER_LOT = 10.0  # $10 per pip per standard lot (broker-dependent)
+MIN_LOT = 0.01
+MAX_LOT = 100.0
+POINT = 0.01  # Smallest price increment
+
+# Some brokers name gold differently
+SYMBOL_ALIASES = ["XAUUSD", "GOLD", "XAUUSDm", "XAUUSD.a", "Gold"]
+
+# ============================================================
+# TIMEFRAMES
+# ============================================================
+OB_TIMEFRAME = "H4"  # Order block detection
+FVG_TIMEFRAMES = ["M3", "M5", "M15", "M30", "H1", "H2"]  # Scan order: lowest first
+
+# ============================================================
+# ORDER BLOCK RULES
+# ============================================================
+OB_LOOKBACK_CANDLES = 50  # How many 2H candles to scan for OBs
+OB_MAX_AGE_CANDLES = 10  # Ignore OBs older than this many 2H candles
+
+# ============================================================
+# TRADE PARAMETERS (in pips, 1 pip = 0.1 points for gold)
+# ============================================================
+SL_PIPS = 100  # 12.0 points
+TP1_PIPS = 400  # 30.0 points  (close 80%)
+TP1_CLOSE_PERCENT = 80  # Close 80% at TP1
+BE_OFFSET_PIPS = 20  # 2.0 points   (move SL to entry + this)
+TP2_PIPS = 1000  # 100.0 points (remaining 20%)
+
+# Limit order expiry (hours) - cancel if not filled
+LIMIT_ORDER_EXPIRY_HOURS = 48
+
+# ============================================================
+# RISK MANAGEMENT (auto-detected from balance)
+# ============================================================
+# Account tiers
+RISK_TIERS = {
+    "small": {
+        "max_balance": 1000,
+        "risk_per_trade": 6.0,  # %
+        "max_daily_loss": 12.0,  # %
+        "description": "Small account (< $1,000)",
+    },
+    "standard": {
+        "max_balance": float("inf"),
+        "risk_per_trade": 2.0,
+        "max_daily_loss": 4.0,
+        "description": "Standard account (>= $1,000)",
+    },
+    "prop": {
+        "max_balance": float("inf"),
+        "risk_per_trade": 0.5,
+        "max_daily_loss": 1.5,
+        "description": "Prop firm account",
+    },
+}
+
+# Set to "prop" to force prop firm mode, otherwise auto-detects small vs standard
+ACCOUNT_MODE = "auto"  # "auto", "small", "standard", or "prop"
+
+# ============================================================
+# BOT SETTINGS
+# ============================================================
+CHECK_INTERVAL_SECONDS = 60  # How often to scan for signals
+MAGIC_NUMBER = 20260325  # Unique ID for this bot's orders
+DEVIATION = 20  # Max slippage in points
+
+# ============================================================
+# LOGGING
+# ============================================================
+LOG_DIRECTORY = "logs"
+TRADE_LOG_FILE = "trade_log.xlsx"
+
+# ============================================================
+# BACKTESTING
+# ============================================================
+BACKTEST_INITIAL_BALANCE = 200
+BACKTEST_DATE_FROM = datetime(2025, 6, 1)
+BACKTEST_DATE_TO = datetime(2026, 3, 25)
 
 
-# ─────────────────────────────────────────────
-#  STRATEGY CONFIGURATION
-#  Edit these values to tune the strategy
-# ─────────────────────────────────────────────
-@dataclass(frozen=True)
-class StrategyConfig:
-    symbol: str = SYMBOL
-
-    # 2H is used exclusively for swing detection
-    swing_tf: Timeframe = "H2"
-
-    # Flag pattern timeframes (lowest to highest priority)
-    # Flags are searched on H1, M30, M15 only
-    flag_tfs: List[Timeframe] = field(default_factory=lambda: ["H2","H1", "M30", "M15"])
-
-    # LTF timeframes to search for FVG during the engulfing candle
-    # Ordered lowest → highest (3M is checked first)
-    fvg_tfs: List[Timeframe] = field(
-        default_factory=lambda: ["M5", "M15", "M30", "H1"]
-    )
-
-    # Swing fractal look-left / look-right bars on H2
-    swing_fractal_left: int = 2
-    swing_fractal_right: int = 2
-
-    # Require a wick sweep (close back on the other side)
-    require_wick_sweep: bool = True
-
-    # Max bars to scan for a flag pattern after a sweep
-    flag_scan_max_bars: int = 80
-
-    # Max bars to wait for fill after FVG zone is formed
-    fill_max_bars: int = 200
-
-    # ── TP / SL ──────────────────────────────
-    # For XAUUSD: 1 pip = 0.1 price units (e.g. 300 pips = $30 move)
-    tp_pips: float = 150.0  # Fixed TP distance in pips
-    sl_pips: float = 100.0  # Fixed SL distance in pips
-
-    # Entry: True = midpoint of FVG zone, False = zone edge
-    entry_at_midpoint: bool = True
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
 
 
-# ─────────────────────────────────────────────
-#  RISK CONFIGURATION
-#  Edit these values to tune risk management
-# ─────────────────────────────────────────────
-@dataclass(frozen=True)
-class RiskConfig:
-    # ── Lot limits ───────────────────────────
-    min_lot: float = 0.01
-    max_lot: float = 5.0
-    lot_step: float = 0.01
-
-    # ── Small account (balance ≤ small_acct_max_balance) ──
-    small_acct_max_balance: float = 500.0
-    small_risk_pct: float = 0.02  # 2% risk per trade
-    small_max_daily_loss_pct: float = 0.06  # 6% max daily loss
-
-    # ── Large account (balance ≥ big_acct_min_balance) ──
-    big_acct_min_balance: float = 1000.0
-    big_risk_pct: float = 0.01  # 1% risk per trade
-    big_max_daily_loss_pct: float = 0.04  # 4% max daily loss
-
-    # Between small_acct_max_balance and big_acct_min_balance
-    # risk is linearly interpolated automatically
+def pips_to_points(pips):
+    """Convert pips to price points for gold."""
+    return pips * PIP_SIZE
 
 
-# ─────────────────────────────────────────────
-#  DEFAULTS (used by run_backtest / run_live)
-# ─────────────────────────────────────────────
-def default_strategy_config() -> StrategyConfig:
-    return StrategyConfig()
+def points_to_pips(points):
+    """Convert price points to pips for gold."""
+    return points / PIP_SIZE
 
 
-def default_risk_config() -> RiskConfig:
-    return RiskConfig()
+def get_risk_tier(balance):
+    """Auto-detect risk tier from balance."""
+    if ACCOUNT_MODE == "prop":
+        return RISK_TIERS["prop"]
+    if ACCOUNT_MODE in ("small", "standard"):
+        return RISK_TIERS[ACCOUNT_MODE]
+
+    # Auto-detect
+    if balance < 1000:
+        return RISK_TIERS["small"]
+    return RISK_TIERS["standard"]
