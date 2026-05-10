@@ -16,35 +16,49 @@ from typing import Optional, Union
 import pandas as pd
 
 import config
-from swing_detector import SwingHigh, SwingLow, find_swing_highs, find_swing_lows, find_recent_sweep
-from ob_detector import OrderBlock, find_order_blocks, get_most_recent_ob, price_inside_ob
+from swing_detector import (
+    SwingHigh,
+    SwingLow,
+    find_swing_highs,
+    find_swing_lows,
+    find_recent_sweep,
+)
+from ob_detector import (
+    OrderBlock,
+    find_order_blocks,
+    get_most_recent_ob,
+    price_inside_ob,
+)
 from fvg_detector import FVG, search_fvg_across_timeframes
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Signal data class
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Signal:
-    direction:   str                          # "BUY" or "SELL"
-    trade_type:  str                          # "INTRADAY" or "SWING"
-    swept_tf:    str                          # TF whose swing was swept
+    direction: str  # "BUY" or "SELL"
+    trade_type: str  # "INTRADAY" or "SWING"
+    swept_tf: str  # TF whose swing was swept
     swept_swing: Union[SwingHigh, SwingLow]  # The swing that was swept
-    ob:          OrderBlock                   # The Order Block confirming the setup
-    fvg:         FVG                          # The FVG used for entry
-    entry:       float
-    sl:          float
-    tp1:         Optional[float]              # Primary TP (always set for intraday, may be None for swing until structure forms)
-    tp2:         Optional[float]              # Secondary TP (intraday only; swing uses tp1)
-    ob_tf:       str                          # TF the OB was found on
-    fvg_tf:      str                          # TF the FVG was found on
-    rejection_reason: str = ""               # Populated if setup was rejected at any step
+    ob: OrderBlock  # The Order Block confirming the setup
+    fvg: FVG  # The FVG used for entry
+    entry: float
+    sl: float
+    tp1: Optional[
+        float
+    ]  # Primary TP (always set for intraday, may be None for swing until structure forms)
+    tp2: Optional[float]  # Secondary TP (intraday only; swing uses tp1)
+    ob_tf: str  # TF the OB was found on
+    fvg_tf: str  # TF the FVG was found on
+    rejection_reason: str = ""  # Populated if setup was rejected at any step
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main entry point
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def generate_signal(
     candle_data: dict,
@@ -82,39 +96,40 @@ def generate_signal(
 
     # ── Step 5: Find FVG within the OB ───────────────────────────────────
     fvg = search_fvg_across_timeframes(
-        candle_data  = candle_data,
-        ob_low       = ob.zone_low,
-        ob_high      = ob.zone_high,
-        direction    = direction,
-        search_order = config.FVG_SEARCH_ORDER,
+        candle_data=candle_data,
+        ob_low=ob.zone_low,
+        ob_high=ob.zone_high,
+        direction=direction,
+        search_order=config.FVG_SEARCH_ORDER,
     )
     if fvg is None:
         return None
 
     # ── Step 6: Calculate entry, SL, TP ───────────────────────────────────
-    entry    = _calculate_entry(fvg, direction)
-    sl       = _calculate_sl(entry, direction)
+    entry = _calculate_entry(fvg, direction)
+    sl = _calculate_sl(entry, direction)
     tp1, tp2 = _calculate_tp(entry, direction, trade_type, candle_data, swept_tf)
 
     return Signal(
-        direction    = direction,
-        trade_type   = trade_type,
-        swept_tf     = swept_tf,
-        swept_swing  = swept_swing,
-        ob           = ob,
-        fvg          = fvg,
-        entry        = entry,
-        sl           = sl,
-        tp1          = tp1,
-        tp2          = tp2,
-        ob_tf        = ob.timeframe,
-        fvg_tf       = fvg.timeframe,
+        direction=direction,
+        trade_type=trade_type,
+        swept_tf=swept_tf,
+        swept_swing=swept_swing,
+        ob=ob,
+        fvg=fvg,
+        entry=entry,
+        sl=sl,
+        tp1=tp1,
+        tp2=tp2,
+        ob_tf=ob.timeframe,
+        fvg_tf=fvg.timeframe,
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step implementations
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _find_sweep(
     candle_data: dict,
@@ -128,7 +143,8 @@ def _find_sweep(
     """
     for tf in config.LIQUIDATION_TIMEFRAMES:
         df = candle_data.get(tf)
-        if df is None or len(df) < 10:
+        min_candles = {"MN": 4, "W1": 6}.get(tf, 10)
+        if df is None or len(df) < min_candles:
             continue
 
         result = find_recent_sweep(df, lookback=config.SWEEP_RECENCY_CANDLES)
@@ -186,7 +202,7 @@ def _calculate_entry(fvg: FVG, direction: str) -> float:
     BUY:  bottom of bullish FVG (C1.high of the FVG pattern)
     SELL: top of bearish FVG (C1.low of the FVG pattern)
     """
-    return fvg.gap_low if direction == "BUY" else fvg.gap_high
+    return fvg.gap_high if direction == "BUY" else fvg.gap_low
 
 
 def _calculate_sl(entry: float, direction: str) -> float:
@@ -196,11 +212,11 @@ def _calculate_sl(entry: float, direction: str) -> float:
 
 
 def _calculate_tp(
-    entry:      float,
-    direction:  str,
+    entry: float,
+    direction: str,
     trade_type: str,
     candle_data: dict,
-    swept_tf:   str,
+    swept_tf: str,
 ) -> tuple[Optional[float], Optional[float]]:
     """
     Calculate TP levels based on trade type.

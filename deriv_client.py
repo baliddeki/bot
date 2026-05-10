@@ -1,23 +1,23 @@
 """
 deriv_client.py — Deriv WebSocket API client for market data.
 
-Uses the NEW Deriv API (api.derivws.com), not the legacy binaryws endpoint.
+Uses the new Deriv API (api.derivws.com) public endpoint.
+No authentication or App ID required for market data.
 
-Public market data requires NO authentication and NO App ID.
-Candle data is fetched via the ticks_history call with style="candles".
+Pagination:
+  Deriv returns a limited number of candles per request (~1000).
+  _fetch_range() paginates automatically until the full date range
+  is covered — there is no cap on total candles returned.
 
 Supported granularities (seconds):
   60, 120, 180, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 86400
-  → M1, M2, M3, M5, M10, M15, M30, H1, H2, H4, H8, D1
 
 W1 and MN are not native — resampled from D1 automatically.
-
-Deriv API docs: https://developers.deriv.com/docs/
 """
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import pandas as pd
@@ -26,22 +26,32 @@ import websockets
 import config
 from logger import log_event
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Endpoints
+# Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Public endpoint — no auth, no App ID required
 _PUBLIC_WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public"
+_ALLOWED_GRANULARITIES = {
+    60,
+    120,
+    180,
+    300,
+    600,
+    900,
+    1800,
+    3600,
+    7200,
+    14400,
+    28800,
+    86400,
+}
 
-# Allowed granularities by Deriv (in seconds)
-_ALLOWED_GRANULARITIES = {60, 120, 180, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 86400}
+# Deriv returns at most this many candles per request — used to detect truncation
+_DERIV_PAGE_LIMIT = 1000
 
-# Native timeframes: label → granularity in seconds
+# Native TFs: label → granularity in seconds (None = resampled)
 _NATIVE_TIMEFRAMES = {
-    tf: gran
-    for tf, gran in config.TIMEFRAMES.items()
-    if gran is not None
+    tf: gran for tf, gran in config.TIMEFRAMES.items() if gran is not None
 }
 
 
@@ -49,22 +59,26 @@ _NATIVE_TIMEFRAMES = {
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def fetch_candles(
-    symbol:      str,
+    symbol: str,
     granularity: int,
-    count:       int = 500,
-    date_from:   Optional[datetime] = None,
-    date_to:     Optional[datetime] = None,
+    count: int = 500,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
 ) -> Optional[pd.DataFrame]:
     """
-    Fetch OHLCV candle data from Deriv's public WebSocket endpoint.
+    Fetch OHLCV candles from Deriv's public WebSocket endpoint.
+
+    When date_from is provided, paginates automatically to retrieve
+    the complete date range regardless of Deriv's per-request limit.
 
     Args:
         symbol:      Deriv symbol, e.g. "frxXAUUSD".
-        granularity: Candle size in seconds. Must be one of the allowed values.
-        count:       Number of recent candles (used when date_from is None).
-        date_from:   Start of date range (UTC). Triggers range-mode fetch.
-        date_to:     End of date range (UTC). Defaults to now if not provided.
+        granularity: Candle size in seconds.
+        count:       Recent candle count (only used when date_from is None).
+        date_from:   Start of date range (UTC).
+        date_to:     End of date range (UTC). Defaults to now.
 
     Returns:
         DataFrame with columns [time, open, high, low, close, volume],
@@ -80,16 +94,20 @@ def fetch_candles(
 
     try:
         if date_from:
-            rows = _run(_fetch_range(symbol, granularity, date_from, date_to))
+            rows = _run(_fetch_range_paginated(symbol, granularity, date_from, date_to))
         else:
             rows = _run(_fetch_recent(symbol, granularity, count))
 
         if not rows:
             return None
 
-        df = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close", "volume"])
+        df = pd.DataFrame(
+            rows, columns=["time", "open", "high", "low", "close", "volume"]
+        )
         df["time"] = pd.to_datetime(df["time"], utc=True)
-        df = df.sort_values("time").reset_index(drop=True)
+        df = (
+            df.drop_duplicates(subset="time").sort_values("time").reset_index(drop=True)
+        )
         return df
 
     except Exception as exc:
@@ -98,29 +116,26 @@ def fetch_candles(
 
 
 def fetch_all_timeframes(
-    symbol:    str = config.SYMBOL,
+    symbol: str = config.SYMBOL,
     date_from: Optional[datetime] = None,
-    date_to:   Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
 ) -> dict:
     """
     Fetch candles for every timeframe in config.TIMEFRAMES.
+    W1 and MN are resampled from D1 automatically.
 
-    W1 and MN are resampled from D1 candles since Deriv does not provide them natively.
-
-    Returns:
-        Dict mapping TF label → DataFrame (or None if fetch failed).
+    Returns: dict mapping TF label → DataFrame (or None if failed).
     """
     data: dict = {}
 
-    # ── Fetch all natively supported timeframes ───────────────────────────
     for tf, granularity in _NATIVE_TIMEFRAMES.items():
         count = config.CANDLE_HISTORY.get(tf, 500)
         df = fetch_candles(
-            symbol      = symbol,
-            granularity = granularity,
-            count       = count,
-            date_from   = date_from,
-            date_to     = date_to,
+            symbol=symbol,
+            granularity=granularity,
+            count=count,
+            date_from=date_from,
+            date_to=date_to,
         )
         data[tf] = df
         status = f"{len(df)} candles" if df is not None else "FAILED"
@@ -130,7 +145,7 @@ def fetch_all_timeframes(
     d1_df = data.get("D1")
 
     if d1_df is not None:
-        data["W1"] = _resample(d1_df, "W",  config.CANDLE_HISTORY.get("W1", 52))
+        data["W1"] = _resample(d1_df, "W", config.CANDLE_HISTORY.get("W1", 52))
         data["MN"] = _resample(d1_df, "ME", config.CANDLE_HISTORY.get("MN", 24))
         log_event(f"  [W1 ] resampled from D1 → {len(data['W1'])} candles")
         log_event(f"  [MN ] resampled from D1 → {len(data['MN'])} candles")
@@ -144,13 +159,9 @@ def fetch_all_timeframes(
 
 
 def ping() -> bool:
-    """
-    Ping the Deriv public WebSocket. Useful for testing connectivity.
-    Returns True if the server responds correctly.
-    """
+    """Ping the Deriv public WebSocket. Returns True if reachable."""
     try:
-        response = _run(_ws_request({"ping": 1}))
-        return response.get("ping") == "pong"
+        return _run(_ws_request({"ping": 1})).get("ping") == "pong"
     except Exception as exc:
         log_event(f"Deriv ping failed: {exc}", level="ERROR")
         return False
@@ -160,35 +171,99 @@ def ping() -> bool:
 # Resampling  (D1 → W1 / MN)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _resample(df_daily: pd.DataFrame, freq: str, target_count: int) -> pd.DataFrame:
-    """
-    Resample a daily OHLCV DataFrame to a lower frequency.
-
-    Args:
-        df_daily:     D1 DataFrame with a UTC-aware 'time' column.
-        freq:         Pandas offset alias — "W" for weekly, "ME" for month-end.
-        target_count: Number of completed periods to keep (most recent N).
-    """
+    """Resample daily OHLCV to a lower frequency, keeping the most recent N periods."""
     df = df_daily.copy().set_index("time")
-
-    resampled = df.resample(freq).agg(
-        open   = ("open",   "first"),
-        high   = ("high",   "max"),
-        low    = ("low",    "min"),
-        close  = ("close",  "last"),
-        volume = ("volume", "sum"),
-    ).dropna()
-
-    # Drop the current incomplete period
+    resampled = (
+        df.resample(freq)
+        .agg(
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+            volume=("volume", "sum"),
+        )
+        .dropna()
+    )
     if len(resampled) > 1:
-        resampled = resampled.iloc[:-1]
-
+        resampled = resampled.iloc[:-1]  # Drop current incomplete period
     return resampled.tail(target_count).reset_index()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# WebSocket transport
+# Paginated range fetch
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _fetch_range_paginated(
+    symbol: str,
+    granularity: int,
+    date_from: datetime,
+    date_to: Optional[datetime],
+) -> list[dict]:
+    """
+    Fetch candles for a date range, paginating until the full range is covered.
+
+    Deriv returns at most ~1000 candles per request. This function keeps
+    fetching from where the last batch ended until it reaches date_to.
+    """
+    end_epoch = (
+        int(date_to.replace(tzinfo=timezone.utc).timestamp())
+        if date_to
+        else int(datetime.now(timezone.utc).timestamp())
+    )
+
+    current_start = int(date_from.replace(tzinfo=timezone.utc).timestamp())
+    all_rows: list[dict] = []
+    page = 0
+
+    while current_start < end_epoch:
+        page += 1
+        payload = {
+            "ticks_history": symbol,
+            "adjust_start_time": 1,
+            "start": current_start,
+            "end": end_epoch,
+            "granularity": granularity,
+            "style": "candles",
+        }
+
+        try:
+            response = await _ws_request(payload)
+        except Exception as exc:
+            log_event(f"Deriv pagination error (page {page}): {exc}", level="WARNING")
+            break
+
+        candles = response.get("candles", [])
+        if not candles:
+            break
+
+        # Drop the last candle on final page — it may be the live (incomplete) candle
+        # Keep it on intermediate pages since it's a complete boundary candle
+        is_last_page = len(candles) < _DERIV_PAGE_LIMIT
+        if is_last_page and candles:
+            candles = candles[:-1]
+
+        if not candles:
+            break
+
+        all_rows.extend(_parse_candle(c) for c in candles)
+
+        if is_last_page:
+            break  # We've covered the full range
+
+        # Advance start to one granularity step beyond the last received candle
+        last_epoch = candles[-1]["epoch"]
+        current_start = last_epoch + granularity
+
+    return all_rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WebSocket helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 def _run(coro) -> list | dict:
     """Run an async coroutine synchronously."""
@@ -196,10 +271,7 @@ def _run(coro) -> list | dict:
 
 
 async def _ws_request(payload: dict) -> dict:
-    """
-    Open a connection to the public endpoint, send one request, return the response.
-    No authentication or App ID required for public market data.
-    """
+    """Send one request to the public WebSocket endpoint and return the response."""
     async with websockets.connect(_PUBLIC_WS_URL) as ws:
         await ws.send(json.dumps(payload))
         response = json.loads(await ws.recv())
@@ -216,63 +288,25 @@ async def _fetch_recent(symbol: str, granularity: int, count: int) -> list[dict]
     payload = {
         "ticks_history": symbol,
         "adjust_start_time": 1,
-        "count":       count + 1,   # +1 because the live open candle is trimmed below
-        "end":         "latest",
+        "count": count + 1,
+        "end": "latest",
         "granularity": granularity,
-        "style":       "candles",
+        "style": "candles",
     }
     response = await _ws_request(payload)
-    candles  = response.get("candles", [])
-
-    # Drop the last candle — it's the currently forming (incomplete) candle
+    candles = response.get("candles", [])
     if candles:
-        candles = candles[:-1]
-
-    return [_parse_candle(c) for c in candles]
-
-
-async def _fetch_range(
-    symbol:      str,
-    granularity: int,
-    date_from:   datetime,
-    date_to:     Optional[datetime],
-) -> list[dict]:
-    """Fetch candles between two UTC datetimes."""
-    end_epoch = (
-        int(date_to.replace(tzinfo=timezone.utc).timestamp())
-        if date_to
-        else int(datetime.now(timezone.utc).timestamp())
-    )
-    payload = {
-        "ticks_history": symbol,
-        "adjust_start_time": 1,
-        "start":       int(date_from.replace(tzinfo=timezone.utc).timestamp()),
-        "end":         end_epoch,
-        "granularity": granularity,
-        "style":       "candles",
-    }
-    response = await _ws_request(payload)
-    candles  = response.get("candles", [])
-
-    # If fetching up to now, the last candle may be incomplete
-    if not date_to and candles:
-        candles = candles[:-1]
-
+        candles = candles[:-1]  # Drop the live (incomplete) candle
     return [_parse_candle(c) for c in candles]
 
 
 def _parse_candle(candle: dict) -> dict:
-    """
-    Parse a Deriv candle dict into a flat row dict.
-
-    Deriv keys: epoch, open, high, low, close
-    Volume is not provided for forex/metals — set to 0 for schema compatibility.
-    """
+    """Parse a Deriv candle dict into a flat row dict."""
     return {
-        "time":   pd.Timestamp(candle["epoch"], unit="s", tz="UTC"),
-        "open":   float(candle["open"]),
-        "high":   float(candle["high"]),
-        "low":    float(candle["low"]),
-        "close":  float(candle["close"]),
+        "time": pd.Timestamp(candle["epoch"], unit="s", tz="UTC"),
+        "open": float(candle["open"]),
+        "high": float(candle["high"]),
+        "low": float(candle["low"]),
+        "close": float(candle["close"]),
         "volume": 0,
     }

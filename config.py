@@ -13,7 +13,7 @@ from datetime import datetime
 # ─────────────────────────────────────────────────────────────────────────────
 
 SYMBOL     = "frxXAUUSD"  # Deriv symbol for Gold (XAU/USD)
-MT5_SYMBOL = "XAUUSDm"    # MT5 symbol — varies per broker (XAUUSD, XAUUSDm, etc.)
+MT5_SYMBOL = "XAUUSD"    # MT5 symbol — varies per broker (XAUUSD, XAUUSDm, etc.)
 PIP_SIZE   = 0.10          # 1 pip = $0.10 for Gold
 
 
@@ -41,7 +41,7 @@ PIP_SIZE   = 0.10          # 1 pip = $0.10 for Gold
 
 # DERIV_APP_ID      = ""    # OAuth2 App ID (required header for REST execution calls)
 # DERIV_OAUTH_TOKEN = "2CO0GgNwGg13QBi"    # Bearer token from OAuth2 login
-# DERIV_ACCOUNT_ID  = ""    # e.g. "DOT90004580"
+# DERIV_ACCOUNT_ID  = "CR7191692"    # e.g. "DOT90004580"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ EXECUTION_BROKER = "mt5"   # "deriv_multipliers" | "mt5"
 # MT5 SETTINGS  (only used when EXECUTION_BROKER = "mt5")
 # ─────────────────────────────────────────────────────────────────────────────
 
-MT5_LOGIN    = 32215077     # Account number (0 = use already-logged-in terminal)
+MT5_LOGIN    = 32215077    # Account number (0 = use already-logged-in terminal)
 MT5_PASSWORD = "NikiMini!663"   # Account password
 MT5_SERVER   = "Deriv-Demo"   # Broker server (e.g. "Deriv-Server", "ICMarkets-Live01")
 
@@ -266,8 +266,8 @@ EVENT_LOG_FILE = "events.log"
 # ─────────────────────────────────────────────────────────────────────────────
 
 BACKTEST_INITIAL_BALANCE = 10_000
-BACKTEST_DATE_FROM       = datetime(2024, 1, 1)
-BACKTEST_DATE_TO         = datetime(2025, 1, 1)
+BACKTEST_DATE_FROM       = datetime(2026, 1, 1)
+BACKTEST_DATE_TO         = datetime(2026, 4, 30)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

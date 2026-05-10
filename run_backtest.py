@@ -12,7 +12,7 @@ Usage:
 """
 
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 
@@ -20,6 +20,15 @@ import config
 from deriv_client import fetch_all_timeframes
 from backtest_engine import BacktestEngine, ClosedTrade
 from logger import log_event
+
+# ─────────────────────────────────────────────────────────────────────────────
+# How many extra days to fetch BEFORE the backtest start date.
+# This gives the signal pipeline historical OBs and swings to work with
+# from day one — without it, no OBs exist at the start of the simulation.
+# ─────────────────────────────────────────────────────────────────────────────
+
+CONTEXT_DAYS = 120  # 4 months of pre-period context
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
@@ -32,31 +41,48 @@ def main():
     date_from = config.BACKTEST_DATE_FROM
     date_to = config.BACKTEST_DATE_TO
     balance = config.BACKTEST_INITIAL_BALANCE
+    context_from = date_from - timedelta(days=CONTEXT_DAYS)
 
     print(f"  Symbol        : {config.SYMBOL}")
-    print(f"  Period        : {date_from.date()}  →  {date_to.date()}")
+    print(f"  Test period   : {date_from.date()}  →  {date_to.date()}")
+    print(
+        f"  Context fetch : {context_from.date()}  →  {date_to.date()}  "
+        f"({CONTEXT_DAYS} days pre-period for OB/swing context)"
+    )
     print(f"  Start balance : ${balance:,.2f}")
     print(f"  Account mode  : {config.ACCOUNT_MODE}")
     print()
 
-    # ── Fetch historical data ─────────────────────────────────────────────
-    log_event("Fetching historical data from Deriv...")
+    # ── Fetch data including the pre-period context ───────────────────────
+    log_event(
+        f"Fetching data from {context_from.date()} → {date_to.date()} "
+        f"(includes {CONTEXT_DAYS}-day context window)..."
+    )
     candle_data = fetch_all_timeframes(
         symbol=config.SYMBOL,
-        date_from=date_from,
+        date_from=context_from,
         date_to=date_to,
     )
 
     # Abort if the primary timeframe is empty
-    if candle_data.get("H1") is None or candle_data["H1"].empty:
+    h1_df = candle_data.get("H1")
+    if h1_df is None or h1_df.empty:
         log_event("No H1 data returned — check date range and symbol.", level="ERROR")
         sys.exit(1)
 
-    h1_count = len(candle_data["H1"])
-    log_event(f"Data ready. H1 candles: {h1_count}")
+    backtest_start = pd.Timestamp(date_from, tz="UTC")
+
+    log_event(
+        f"Data ready. Total H1: {len(h1_df)} candles | "
+        f"Simulation starts: {date_from.date()}"
+    )
 
     # ── Run simulation ────────────────────────────────────────────────────
-    engine = BacktestEngine(candle_data, initial_balance=balance)
+    engine = BacktestEngine(
+        candle_data=candle_data,
+        initial_balance=balance,
+        sim_start=backtest_start,
+    )
     results = engine.run()
 
     # ── Print summary report ──────────────────────────────────────────────
@@ -75,9 +101,9 @@ def _print_summary(trades: list[ClosedTrade], initial_balance: float):
 
     if not trades:
         print("  No trades taken during the backtest period.")
+        print("  Tip: run  python debug_signal.py  to diagnose.\n")
         return
 
-    # ── Aggregate stats ───────────────────────────────────────────────────
     total = len(trades)
     wins = [t for t in trades if "TP" in t.outcome]
     losses = [t for t in trades if "SL" in t.outcome]
@@ -85,31 +111,25 @@ def _print_summary(trades: list[ClosedTrade], initial_balance: float):
 
     total_pips = sum(t.pnl_pips for t in trades)
     total_usd = sum(t.pnl_usd for t in trades)
-    win_pips = sum(t.pnl_pips for t in wins)
-    loss_pips = sum(t.pnl_pips for t in losses)
-    avg_win_pips = win_pips / len(wins) if wins else 0
-    avg_los_pips = loss_pips / len(losses) if losses else 0
+    avg_win_pips = sum(t.pnl_pips for t in wins) / len(wins) if wins else 0
+    avg_los_pips = sum(t.pnl_pips for t in losses) / len(losses) if losses else 0
     win_rate = len(wins) / total * 100 if total else 0
 
     final_balance = initial_balance + total_usd
     return_pct = (total_usd / initial_balance) * 100
 
-    # ── Max drawdown ──────────────────────────────────────────────────────
     running = initial_balance
     peak = initial_balance
     max_dd = 0.0
     for t in trades:
         running += t.pnl_usd
         peak = max(peak, running)
-        drawdown = (peak - running) / peak * 100
-        max_dd = max(max_dd, drawdown)
+        max_dd = max(max_dd, (peak - running) / peak * 100)
 
-    # ── Profit factor ─────────────────────────────────────────────────────
     gross_profit = sum(t.pnl_usd for t in trades if t.pnl_usd > 0)
     gross_loss = abs(sum(t.pnl_usd for t in trades if t.pnl_usd < 0))
     profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
-    # ── By trade type ─────────────────────────────────────────────────────
     intraday = [t for t in trades if t.trade_type == "INTRADAY"]
     swing = [t for t in trades if t.trade_type == "SWING"]
 
@@ -133,18 +153,18 @@ def _print_summary(trades: list[ClosedTrade], initial_balance: float):
     print()
 
     if intraday:
-        intraday_wins = sum(1 for t in intraday if "TP" in t.outcome)
+        iw = sum(1 for t in intraday if "TP" in t.outcome)
         print(
             f"  Intraday      : {len(intraday)} trades | "
-            f"{intraday_wins/len(intraday)*100:.1f}% win rate | "
+            f"{iw/len(intraday)*100:.1f}% win | "
             f"{sum(t.pnl_pips for t in intraday):+.1f} pips"
         )
 
     if swing:
-        swing_wins = sum(1 for t in swing if "TP" in t.outcome)
+        sw = sum(1 for t in swing if "TP" in t.outcome)
         print(
             f"  Swing         : {len(swing)} trades | "
-            f"{swing_wins/len(swing)*100:.1f}% win rate | "
+            f"{sw/len(swing)*100:.1f}% win | "
             f"{sum(t.pnl_pips for t in swing):+.1f} pips"
         )
 
@@ -153,25 +173,18 @@ def _print_summary(trades: list[ClosedTrade], initial_balance: float):
     print(f"  Trade log     : {config.LOG_DIRECTORY}/{config.TRADE_LOG_FILE}")
     print("═" * 55 + "\n")
 
-    # ── Per-trade breakdown ───────────────────────────────────────────────
     print(
         f"  {'ID':<12} {'Dir':<5} {'Type':<9} {'Swept':<6} "
-        f"{'Entry':>8} {'Exit':>8} {'Pips':>7} {'USD':>8}  Outcome"
+        f"{'Entry':>8} {'Exit':>8} {'Pips':>7} {'USD':>9}  Outcome"
     )
-    print("  " + "─" * 80)
+    print("  " + "─" * 82)
     for t in trades:
-        pips_str = f"{t.pnl_pips:+.1f}"
-        usd_str = f"${t.pnl_usd:+.2f}"
         print(
             f"  {t.trade_id:<12} {t.direction:<5} {t.trade_type:<9} {t.swept_tf:<6} "
-            f"{t.entry:>8.2f} {t.exit_price:>8.2f} {pips_str:>7} {usd_str:>8}  {t.outcome}"
+            f"{t.entry:>8.2f} {t.exit_price:>8.2f} "
+            f"{t.pnl_pips:>+7.1f} {t.pnl_usd:>+9.2f}  {t.outcome}"
         )
     print()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Banner
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 def _print_banner():

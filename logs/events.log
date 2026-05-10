@@ -1,0 +1,78 @@
+[2026-05-10 13:25:24] [INFO   ] Fetching historical data from Deriv...
+[2026-05-10 13:25:29] [INFO   ]   [M3 ] 961 candles
+[2026-05-10 13:25:31] [INFO   ]   [M5 ] 829 candles
+[2026-05-10 13:25:33] [INFO   ]   [M15] 729 candles
+[2026-05-10 13:25:35] [INFO   ]   [H1 ] 648 candles
+[2026-05-10 13:25:37] [INFO   ]   [H2 ] 686 candles
+[2026-05-10 13:25:39] [INFO   ]   [H4 ] 497 candles
+[2026-05-10 13:25:41] [INFO   ]   [D1 ] 84 candles
+[2026-05-10 13:25:41] [INFO   ]   [W1 ] resampled from D1 → 17 candles
+[2026-05-10 13:25:41] [INFO   ]   [MN ] resampled from D1 → 3 candles
+[2026-05-10 13:25:41] [INFO   ] Data ready. H1 candles: 648
+[2026-05-10 13:25:41] [INFO   ] Backtest: starting walk-forward over 648 H1 candles.
+[2026-05-10 13:25:50] [INFO   ] Backtest complete. 0 trades closed. Final balance: $10,000.00
+[2026-05-10 13:29:11] [INFO   ]   [M3 ] 500 candles
+[2026-05-10 13:29:14] [INFO   ]   [M5 ] 489 candles
+[2026-05-10 13:29:15] [INFO   ]   [M15] 451 candles
+[2026-05-10 13:29:17] [INFO   ]   [H1 ] 225 candles
+[2026-05-10 13:29:19] [INFO   ]   [H2 ] 226 candles
+[2026-05-10 13:29:21] [INFO   ]   [H4 ] 149 candles
+[2026-05-10 13:29:23] [INFO   ]   [D1 ] 141 candles
+[2026-05-10 13:29:23] [INFO   ]   [W1 ] resampled from D1 → 28 candles
+[2026-05-10 13:29:23] [INFO   ]   [MN ] resampled from D1 → 7 candles
+[2026-05-10 13:41:39] [INFO   ] Fetching data from 2025-09-03 → 2026-04-30 (includes 120-day context window)...
+[2026-05-10 13:41:42] [INFO   ]   [M3 ] 961 candles
+[2026-05-10 13:41:44] [INFO   ]   [M5 ] 829 candles
+[2026-05-10 13:41:46] [INFO   ]   [M15] 729 candles
+[2026-05-10 13:41:48] [INFO   ]   [H1 ] 648 candles
+[2026-05-10 13:41:50] [INFO   ]   [H2 ] 686 candles
+[2026-05-10 13:41:52] [INFO   ]   [H4 ] 691 candles
+[2026-05-10 13:41:54] [INFO   ]   [D1 ] 169 candles
+[2026-05-10 13:41:54] [INFO   ]   [W1 ] resampled from D1 → 34 candles
+[2026-05-10 13:41:54] [INFO   ]   [MN ] resampled from D1 → 7 candles
+[2026-05-10 13:41:54] [INFO   ] Data ready. Total H1: 648 candles | Simulation starts: 2026-01-01
+[2026-05-10 13:41:54] [INFO   ] Backtest: 648 total H1 candles | 648 in simulation window.
+[2026-05-10 13:42:34] [INFO   ] Fetching data from 2025-09-03 → 2026-04-30 (includes 120-day context window)...
+[2026-05-10 13:42:36] [INFO   ]   [M3 ] 961 candles
+[2026-05-10 13:42:38] [INFO   ]   [M5 ] 829 candles
+[2026-05-10 13:42:40] [INFO   ]   [M15] 729 candles
+[2026-05-10 13:42:42] [INFO   ]   [H1 ] 648 candles
+[2026-05-10 13:42:44] [INFO   ]   [H2 ] 686 candles
+[2026-05-10 13:42:46] [INFO   ]   [H4 ] 691 candles
+[2026-05-10 13:42:48] [INFO   ]   [D1 ] 169 candles
+[2026-05-10 13:42:48] [INFO   ]   [W1 ] resampled from D1 → 34 candles
+[2026-05-10 13:42:48] [INFO   ]   [MN ] resampled from D1 → 7 candles
+[2026-05-10 13:42:48] [INFO   ] Data ready. Total H1: 648 candles | Simulation starts: 2026-01-01
+[2026-05-10 13:42:48] [INFO   ] Backtest: 648 total H1 candles | 648 in simulation window.
+[2026-05-10 13:42:55] [INFO   ] Backtest complete. 0 trades closed. Final balance: $10,000.00
+[2026-05-10 13:43:17] [INFO   ]   [M3 ] 500 candles
+[2026-05-10 13:43:19] [INFO   ]   [M5 ] 489 candles
+[2026-05-10 13:43:21] [INFO   ]   [M15] 451 candles
+[2026-05-10 13:43:23] [INFO   ]   [H1 ] 225 candles
+[2026-05-10 13:43:26] [INFO   ]   [H2 ] 226 candles
+[2026-05-10 13:43:28] [INFO   ]   [H4 ] 149 candles
+[2026-05-10 13:43:30] [INFO   ]   [D1 ] 141 candles
+[2026-05-10 13:43:30] [INFO   ]   [W1 ] resampled from D1 → 28 candles
+[2026-05-10 13:43:30] [INFO   ]   [MN ] resampled from D1 → 7 candles
+[2026-05-10 13:48:44] [INFO   ] Fetching data from 2025-09-03 → 2026-04-30 (includes 120-day context window)...
+[2026-05-10 13:48:47] [INFO   ]   [M3 ] 960 candles
+[2026-05-10 13:48:49] [INFO   ]   [M5 ] 828 candles
+[2026-05-10 13:48:51] [INFO   ]   [M15] 728 candles
+[2026-05-10 13:48:53] [INFO   ]   [H1 ] 647 candles
+[2026-05-10 13:48:55] [INFO   ]   [H2 ] 685 candles
+[2026-05-10 13:48:57] [INFO   ]   [H4 ] 690 candles
+[2026-05-10 13:48:59] [INFO   ]   [D1 ] 168 candles
+[2026-05-10 13:48:59] [INFO   ]   [W1 ] resampled from D1 → 34 candles
+[2026-05-10 13:48:59] [INFO   ]   [MN ] resampled from D1 → 7 candles
+[2026-05-10 13:48:59] [INFO   ] Data ready. Total H1: 647 candles | Simulation starts: 2026-01-01
+[2026-05-10 13:48:59] [INFO   ] Backtest: walking 647 H1 candles.
+[2026-05-10 13:49:23] [INFO   ] Backtest complete. 0 trades. 0 pending unfilled. Final balance: $10,000.00
+[2026-05-10 13:49:32] [INFO   ]   [M3 ] 500 candles
+[2026-05-10 13:49:34] [INFO   ]   [M5 ] 489 candles
+[2026-05-10 13:49:36] [INFO   ]   [M15] 451 candles
+[2026-05-10 13:49:39] [INFO   ]   [H1 ] 225 candles
+[2026-05-10 13:49:41] [INFO   ]   [H2 ] 226 candles
+[2026-05-10 13:49:43] [INFO   ]   [H4 ] 149 candles
+[2026-05-10 13:49:45] [INFO   ]   [D1 ] 141 candles
+[2026-05-10 13:49:45] [INFO   ]   [W1 ] resampled from D1 → 28 candles
+[2026-05-10 13:49:45] [INFO   ]   [MN ] resampled from D1 → 7 candles

@@ -22,26 +22,27 @@ from dataclasses import dataclass
 from typing import Optional
 import pandas as pd
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Data class
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class OrderBlock:
-    direction:  str             # "BUY" or "SELL"
-    zone_low:   float           # C2 low
-    zone_high:  float           # C2 high
-    time:       pd.Timestamp    # C2 candle time
-    index:      int             # C2 row index in its DataFrame
-    timeframe:  str             # TF label this OB was identified on
-    c1_time:    pd.Timestamp
-    c3_time:    pd.Timestamp
+    direction: str  # "BUY" or "SELL"
+    zone_low: float  # C2 low
+    zone_high: float  # C2 high
+    time: pd.Timestamp  # C2 candle time
+    index: int  # C2 row index in its DataFrame
+    timeframe: str  # TF label this OB was identified on
+    c1_time: pd.Timestamp
+    c3_time: pd.Timestamp
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Candle direction helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _is_bullish(c: pd.Series) -> bool:
     return float(c["close"]) > float(c["open"])
@@ -54,6 +55,7 @@ def _is_bearish(c: pd.Series) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 # Pattern checks
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _check_bullish_ob(
     c1: pd.Series,
@@ -75,14 +77,14 @@ def _check_bullish_ob(
         return None
 
     return OrderBlock(
-        direction = "BUY",
-        zone_low  = float(c2["low"]),
-        zone_high = float(c2["high"]),
-        time      = c2["time"],
-        index     = c2_index,
-        timeframe = timeframe,
-        c1_time   = c1["time"],
-        c3_time   = c3["time"],
+        direction="BUY",
+        zone_low=float(c2["low"]),
+        zone_high=float(c2["high"]),
+        time=c2["time"],
+        index=c2_index,
+        timeframe=timeframe,
+        c1_time=c1["time"],
+        c3_time=c3["time"],
     )
 
 
@@ -106,20 +108,21 @@ def _check_bearish_ob(
         return None
 
     return OrderBlock(
-        direction = "SELL",
-        zone_low  = float(c2["low"]),
-        zone_high = float(c2["high"]),
-        time      = c2["time"],
-        index     = c2_index,
-        timeframe = timeframe,
-        c1_time   = c1["time"],
-        c3_time   = c3["time"],
+        direction="SELL",
+        zone_low=float(c2["low"]),
+        zone_high=float(c2["high"]),
+        time=c2["time"],
+        index=c2_index,
+        timeframe=timeframe,
+        c1_time=c1["time"],
+        c3_time=c3["time"],
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def find_order_blocks(df: pd.DataFrame, timeframe: str) -> list[OrderBlock]:
     """
@@ -155,11 +158,7 @@ def get_most_recent_ob(
         direction:   "BUY" or "SELL".
         before_time: If provided, only consider OBs that formed before this time.
     """
-    matching = [
-        b for b in blocks
-        if b.direction == direction
-        and (before_time is None or b.time < before_time)
-    ]
+    matching = [b for b in blocks if b.direction == direction and (before_time is None or b.time < before_time)]
     return matching[-1] if matching else None
 
 
