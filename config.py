@@ -12,36 +12,69 @@ from datetime import datetime
 # INSTRUMENT
 # ─────────────────────────────────────────────────────────────────────────────
 
-SYMBOL     = "XAU_USD"    # OANDA instrument code
-MT5_SYMBOL = "XAUUSDm"   # MT5 symbol (varies per broker: XAUUSD, XAUUSDm, etc.)
-PIP_SIZE   = 0.10         # 1 pip = $0.10 for Gold
+SYMBOL        = "frxXAUUSD"   # Deriv symbol for Gold
+MT5_SYMBOL    = "XAUUSDm"     # MT5 symbol (varies per broker: XAUUSD, XAUUSDm, etc.)
+PIP_SIZE      = 0.10          # 1 pip = $0.10 for Gold
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OANDA API  (data source — never used for execution)
+# DERIV API  (data source + optional execution)
 # ─────────────────────────────────────────────────────────────────────────────
 
-OANDA_API_KEY      = ""           # Set here or via env var OANDA_API_KEY
-OANDA_ACCOUNT_ID   = ""           # Your OANDA account ID
-OANDA_ENVIRONMENT  = "practice"   # "practice" (demo) or "live"
-OANDA_CANDLE_LIMIT = 5000         # Max candles per single OANDA request
+DERIV_APP_ID   = ""           # Register a free app at https://api.deriv.com/
+DERIV_API_TOKEN = ""          # Generated from your Deriv account (for execution)
+DERIV_WS_URL   = "wss://ws.binaryws.com/websockets/v3"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXECUTION BROKER
+# Controls which executor places and manages trades.
+#
+#   "mt5"               — MetaTrader 5 (any broker: Deriv MT5, IC Markets, etc.)
+#   "deriv_multipliers" — Deriv's native Multipliers product via WebSocket
+#
+# To use Deriv's own MT5 server, set EXECUTION_BROKER = "mt5" and point
+# your MT5 terminal at Deriv's MT5 gateway. No code changes needed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+EXECUTION_BROKER = "deriv_multipliers"   # "mt5" | "deriv_multipliers"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MT5 SETTINGS  (only used when EXECUTION_BROKER = "mt5")
+# ─────────────────────────────────────────────────────────────────────────────
+
+MT5_LOGIN    = 0      # Account number
+MT5_PASSWORD = ""     # Account password
+MT5_SERVER   = ""     # Broker server name (e.g. "Deriv-Server", "ICMarkets-Live01")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DERIV MULTIPLIERS SETTINGS  (only used when EXECUTION_BROKER = "deriv_multipliers")
+# Multipliers are Deriv's leveraged CFD-style product with SL/TP support.
+# ─────────────────────────────────────────────────────────────────────────────
+
+DERIV_MULTIPLIER        = 100    # Leverage multiplier (10, 20, 50, 100, 200, 500)
+DERIV_COMMISSION_PCT    = 0.05   # Commission per trade as % of stake (check your account)
+DERIV_STOP_OUT_LEVEL    = 0.10   # Position force-closed if equity drops to this % of stake
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TIMEFRAMES
-# Maps our internal labels to OANDA granularity strings.
+# Maps internal labels → Deriv granularity in seconds.
+# W1 and MN are not native on Deriv — resampled from D1 candles.
 # ─────────────────────────────────────────────────────────────────────────────
 
 TIMEFRAMES = {
-    "M3":  "M3",
-    "M5":  "M5",
-    "M15": "M15",
-    "H1":  "H1",
-    "H2":  "H2",
-    "H4":  "H4",
-    "D1":  "D",
-    "W1":  "W",
-    "MN":  "M",
+    "M3":  180,
+    "M5":  300,
+    "M15": 900,
+    "H1":  3600,
+    "H2":  7200,
+    "H4":  14400,
+    "D1":  86400,
+    "W1":  None,   # Resampled from D1
+    "MN":  None,   # Resampled from D1
 }
 
 # How many candles to fetch per timeframe on each scan cycle
@@ -52,29 +85,23 @@ CANDLE_HISTORY = {
     "H1":  300,
     "H2":  300,
     "H4":  200,
-    "D1":  100,
-    "W1":  52,
-    "MN":  24,
+    "D1":  200,    # Fetch extra D1 to cover W1/MN resampling
+    "W1":  52,     # Target candle count after resampling
+    "MN":  24,     # Target candle count after resampling
 }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STRATEGY — LIQUIDATION SCANNING
-# Timeframes monitored for swing highs/lows that may be swept.
 # ─────────────────────────────────────────────────────────────────────────────
 
 LIQUIDATION_TIMEFRAMES = ["MN", "W1", "D1", "H4"]
-
-# How many recent candles to scan on each TF when looking for sweeps
-SWEEP_SCAN_LOOKBACK = 50
-
-# How many candles back a sweep is still considered "recent" (not stale)
-SWEEP_RECENCY_CANDLES = 5
+SWEEP_SCAN_LOOKBACK    = 50
+SWEEP_RECENCY_CANDLES  = 5
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STRATEGY — ORDER BLOCK TIMEFRAME RULES
-# For each swept TF, which TFs are valid for OB identification.
 # ─────────────────────────────────────────────────────────────────────────────
 
 OB_TIMEFRAME_RULES = {
@@ -87,7 +114,6 @@ OB_TIMEFRAME_RULES = {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STRATEGY — FVG SEARCH ORDER
-# Searched lowest-to-highest timeframe for FVG within the OB zone.
 # ─────────────────────────────────────────────────────────────────────────────
 
 FVG_SEARCH_ORDER = ["M3", "M5", "M15", "H1", "H2", "H4", "D1"]
@@ -110,58 +136,47 @@ SL_PIPS = 100
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STRATEGY — INTRADAY TAKE PROFIT
-# Two-stage exit: partial close at TP1, full close at TP2.
 # ─────────────────────────────────────────────────────────────────────────────
 
-INTRADAY_TP1_PIPS          = 150   # Close this % of the position at TP1
-INTRADAY_TP1_CLOSE_PERCENT = 50    # Percentage to close at TP1
-INTRADAY_TP2_PIPS          = 250   # Close remaining position at TP2
+INTRADAY_TP1_PIPS          = 150
+INTRADAY_TP1_CLOSE_PERCENT = 50
+INTRADAY_TP2_PIPS          = 250
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STRATEGY — SWING TAKE PROFIT
-# TP is the nearest swing high/low on the same TF as the swept level.
-# Can be updated dynamically as new qualifying swings form during the trade.
 # ─────────────────────────────────────────────────────────────────────────────
 
-SWING_TP_DYNAMIC = True   # Set False to lock TP at signal time and never update
+SWING_TP_DYNAMIC = True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STRATEGY — SWING RE-ENTRY
-# Allow additional entries when new OBs form between price and target.
 # ─────────────────────────────────────────────────────────────────────────────
 
 SWING_REENTRY_ENABLED       = True
-SWING_REENTRY_PERMITTED_TFS = ["H4", "H2"]  # TFs where new OBs are watched
-SWING_REENTRY_MAX_ENTRIES   = 2             # Max additional entries per swing setup
+SWING_REENTRY_PERMITTED_TFS = ["H4", "H2"]
+SWING_REENTRY_MAX_ENTRIES   = 2
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RISK MANAGEMENT — ACCOUNT PROFILES
-# Each profile sets risk limits for a specific trading context.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Set ACCOUNT_MODE to "auto" to select profile by balance,
-# or force a specific profile: "PROP", "LIVE_SMALL", "LIVE_BIG"
-ACCOUNT_MODE = "auto"
-
-# Balance below this threshold → LIVE_SMALL profile (auto mode only)
+ACCOUNT_MODE                 = "auto"
 AUTO_SMALL_ACCOUNT_THRESHOLD = 500
 
 ACCOUNT_PROFILES = {
 
-    # ── Prop firm challenges ──────────────────────────────────────────────
     "PROP": {
         "description":            "Prop firm — ultra conservative",
-        "risk_per_trade_percent": 1.0,    # Base risk for non-gold pairs
-        "risk_xauusd_percent":    1.5,    # Gold-specific risk
-        "max_daily_loss_percent": 3.5,    # Stop trading if daily loss hits this
-        "max_open_risk_percent":  2.5,    # Max combined open risk at any time
+        "risk_per_trade_percent": 1.0,
+        "risk_xauusd_percent":    1.5,
+        "max_daily_loss_percent": 3.5,
+        "max_open_risk_percent":  2.5,
         "max_concurrent_trades":  2,
     },
 
-    # ── Small personal account (< $500) ──────────────────────────────────
     "LIVE_SMALL": {
         "description":            "Small personal account (<$500) — aggressive",
         "risk_per_trade_percent": 6.0,
@@ -171,7 +186,6 @@ ACCOUNT_PROFILES = {
         "max_concurrent_trades":  3,
     },
 
-    # ── Standard personal account (≥ $500) ───────────────────────────────
     "LIVE_BIG": {
         "description":            "Standard personal account (≥$500) — moderate",
         "risk_per_trade_percent": 2.0,
@@ -185,30 +199,33 @@ ACCOUNT_PROFILES = {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RISK MANAGEMENT — POSITION SIZING HARD LIMITS
-# Applied regardless of account profile.
 # ─────────────────────────────────────────────────────────────────────────────
 
 MIN_LOT_SIZE = 0.01
 MAX_LOT_SIZE = 10.0
 LOT_STEP     = 0.01
 
+# Deriv Multipliers: min/max stake in USD
+DERIV_MIN_STAKE = 1.0
+DERIV_MAX_STAKE = 2000.0
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# EXECUTION — HYBRID ORDER LOGIC  (Market vs Limit)
+# EXECUTION — HYBRID ORDER LOGIC  (only applies to MT5 executor)
 # ─────────────────────────────────────────────────────────────────────────────
 
-MARKET_ORDER_MAX_DISTANCE_PIPS = 20   # ≤ this → market order
-LIMIT_ORDER_MAX_DISTANCE_PIPS  = 80   # ≤ this → limit order; beyond → skip signal
-LIMIT_ORDER_EXPIRY_HOURS       = 8    # Cancel unfilled limit orders after this
+MARKET_ORDER_MAX_DISTANCE_PIPS = 20
+LIMIT_ORDER_MAX_DISTANCE_PIPS  = 80
+LIMIT_ORDER_EXPIRY_HOURS       = 8
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BOT OPERATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-CHECK_INTERVAL_SECONDS = 60       # Scan frequency
-MAGIC_NUMBER           = 20260506 # Unique MT5 order identifier for this bot
-DEVIATION_POINTS       = 20       # Max slippage on market orders (MT5 points)
+CHECK_INTERVAL_SECONDS = 60
+MAGIC_NUMBER           = 20260506   # MT5 only
+DEVIATION_POINTS       = 20         # MT5 only
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -216,9 +233,9 @@ DEVIATION_POINTS       = 20       # Max slippage on market orders (MT5 points)
 # ─────────────────────────────────────────────────────────────────────────────
 
 CHART_OUTPUT_DIR     = "charts"
-CHART_CANDLES_BEFORE = 30      # Candles of context before entry in the "before" panel
-CHART_CANDLES_AFTER  = 20      # Candles of context after entry in the "after" panel
-CHART_TIMEFRAME      = "H1"    # Timeframe used for chart candlesticks
+CHART_CANDLES_BEFORE = 30
+CHART_CANDLES_AFTER  = 20
+CHART_TIMEFRAME      = "H1"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -264,8 +281,10 @@ def get_account_profile(balance: float) -> dict:
         mode = ACCOUNT_MODE
 
     if mode not in ACCOUNT_PROFILES:
-        raise ValueError(f"Unknown account mode: {mode!r}. "
-                         f"Valid options: {list(ACCOUNT_PROFILES.keys())}")
+        raise ValueError(
+            f"Unknown account mode: {mode!r}. "
+            f"Valid options: {list(ACCOUNT_PROFILES.keys())}"
+        )
 
     profile = ACCOUNT_PROFILES[mode].copy()
     profile["mode"] = mode

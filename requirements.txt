@@ -3,10 +3,11 @@
 # Install with:
 #   pip install -r requirements.txt
 
-# OANDA REST v20 API wrapper (data source)
-oandapyV20>=0.6.3
+# Deriv WebSocket API (data + execution)
+websockets>=12.0
 
-# MetaTrader 5 Python package (execution only)
+# MetaTrader 5 Python package (only needed if EXECUTION_BROKER = "mt5")
+# Comment out if you are not using MT5.
 MetaTrader5>=5.0.0
 
 # Data handling

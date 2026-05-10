@@ -27,7 +27,7 @@ from risk_manager import (
 )
 from chart_generator import generate_setup_chart, TradeResult
 from logger import log_event, log_trade
-import mt5_executor
+from executor_base import BaseExecutor
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -62,8 +62,9 @@ class TradeManager:
         manager.on_candle_close(candle_data, balance)
     """
 
-    def __init__(self):
+    def __init__(self, executor: BaseExecutor):
         # Maps setup_id → OpenTrade for all currently open trades
+        self.executor = executor
         self.open_trades: dict[str, OpenTrade] = {}
 
     # ── Public interface ──────────────────────────────────────────────────
@@ -85,7 +86,7 @@ class TradeManager:
         # Use TP1 for the MT5 order; TP2 will be monitored manually
         mt5_tp = signal.tp1 or 0.0
 
-        ticket = mt5_executor.place_trade(
+        ticket = self.executor.place_trade(
             direction = signal.direction,
             entry     = signal.entry,
             sl        = signal.sl,
@@ -176,13 +177,14 @@ class TradeManager:
                 (direction == "SELL" and current_price <= sig.tp1)
             )
             if tp1_hit:
-                close_pct  = config.INTRADAY_TP1_CLOSE_PERCENT / 100
-                lots_close = max(config.MIN_LOT_SIZE,
-                                 round(trade.current_lots * close_pct, 2))
-                if mt5_executor.close_partial(trade.ticket, lots_close, "TP1"):
-                    trade.current_lots -= lots_close
+                close_fraction = config.INTRADAY_TP1_CLOSE_PERCENT / 100
+                if self.executor.close_partial(trade.ticket, close_fraction, "TP1"):
+                    trade.current_lots  = round(trade.current_lots * (1 - close_fraction), 2)
                     trade.partial_closed = True
-                    log_event(f"{trade.setup_id}: TP1 hit — closed {lots_close} lots @ {current_price:.2f}")
+                    log_event(
+                        f"{trade.setup_id}: TP1 hit — closed {close_fraction*100:.0f}% "
+                        f"@ {current_price:.2f}"
+                    )
 
         # ── TP2 full close ────────────────────────────────────────────────
         if sig.tp2:
@@ -191,13 +193,13 @@ class TradeManager:
                 (direction == "SELL" and current_price <= sig.tp2)
             )
             if tp2_hit:
-                mt5_executor.close_full(trade.ticket, "TP2")
+                self.executor.close_full(trade.ticket, "TP2")
                 self._close_and_record(trade, candle_data, "TP2_HIT", current_price, balance)
                 return True
 
         # ── SL ────────────────────────────────────────────────────────────
         if self._sl_hit(sig, current_price):
-            mt5_executor.close_full(trade.ticket, "SL")
+            self.executor.close_full(trade.ticket, "SL")
             outcome = "SL_HIT_AFTER_PARTIAL" if trade.partial_closed else "SL_HIT"
             self._close_and_record(trade, candle_data, outcome, current_price, balance)
             return True
@@ -228,7 +230,7 @@ class TradeManager:
         if config.SWING_TP_DYNAMIC:
             new_tp = _find_latest_swing_tp(sig, candle_data)
             if new_tp and new_tp != sig.tp1:
-                if mt5_executor.modify_tp(trade.ticket, new_tp):
+                if self.executor.modify_tp(trade.ticket, new_tp):
                     sig.tp1 = new_tp
                     log_event(f"{trade.setup_id}: TP updated → {new_tp:.2f}")
 
@@ -239,13 +241,13 @@ class TradeManager:
                 (sig.direction == "SELL" and current_price <= sig.tp1)
             )
             if tp_hit:
-                mt5_executor.close_full(trade.ticket, "TP")
+                self.executor.close_full(trade.ticket, "TP")
                 self._close_and_record(trade, candle_data, "TP1_HIT", current_price, balance)
                 return True
 
         # ── SL hit ────────────────────────────────────────────────────────
         if self._sl_hit(sig, current_price):
-            mt5_executor.close_full(trade.ticket, "SL")
+            self.executor.close_full(trade.ticket, "SL")
             self._close_and_record(trade, candle_data, "SL_HIT", current_price, balance)
             return True
 
@@ -321,7 +323,7 @@ class TradeManager:
             profile  = config.get_account_profile(balance)
             lot_size = calculate_lot_size(balance, entry, sl, profile)
 
-            ticket = mt5_executor.place_trade(
+            ticket = self.executor.place_trade(
                 direction = sig.direction,
                 entry     = entry,
                 sl        = sl,
