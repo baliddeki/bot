@@ -12,57 +12,75 @@ from datetime import datetime
 # INSTRUMENT
 # ─────────────────────────────────────────────────────────────────────────────
 
-SYMBOL        = "frxXAUUSD"   # Deriv symbol for Gold
-MT5_SYMBOL    = "XAUUSDm"     # MT5 symbol (varies per broker: XAUUSD, XAUUSDm, etc.)
-PIP_SIZE      = 0.10          # 1 pip = $0.10 for Gold
+SYMBOL     = "frxXAUUSD"  # Deriv symbol for Gold (XAU/USD)
+MT5_SYMBOL = "XAUUSDm"    # MT5 symbol — varies per broker (XAUUSD, XAUUSDm, etc.)
+PIP_SIZE   = 0.10          # 1 pip = $0.10 for Gold
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DERIV API  (data source + optional execution)
+# DERIV CREDENTIALS
+#
+# DATA (deriv_client.py):
+#   The public WebSocket endpoint requires NO credentials for market data.
+#   No App ID or token needed just to fetch candles.
+#
+# EXECUTION (deriv_executor.py) — only needed if EXECUTION_BROKER = "deriv_multipliers":
+#   DERIV_APP_ID      — Your registered OAuth2 App ID from developers.deriv.com
+#                       (needed as the Deriv-App-ID header on REST calls)
+#   DERIV_OAUTH_TOKEN — OAuth2 Bearer token from logging in via auth.deriv.com
+#   DERIV_ACCOUNT_ID  — Your Options account ID, e.g. "DOT90004580"
+#                       (visible in your Deriv dashboard or via GET /trading/v1/options/accounts)
+#
+# HOW TO GET THESE:
+#   1. Go to auth.deriv.com to log in and obtain an OAuth2 token
+#   2. Use GET https://api.derivws.com/trading/v1/options/accounts
+#      with your Bearer token to find your account ID
+#   3. App ID: contact api-support@deriv.com or register at developers.deriv.com
+#      (if the portal redirects you to Traders Hub, use App ID "1089" for testing only)
 # ─────────────────────────────────────────────────────────────────────────────
 
-DERIV_APP_ID   = ""           # Register a free app at https://api.deriv.com/
-DERIV_API_TOKEN = ""          # Generated from your Deriv account (for execution)
-DERIV_WS_URL   = "wss://ws.binaryws.com/websockets/v3"
+# DERIV_APP_ID      = ""    # OAuth2 App ID (required header for REST execution calls)
+# DERIV_OAUTH_TOKEN = "2CO0GgNwGg13QBi"    # Bearer token from OAuth2 login
+# DERIV_ACCOUNT_ID  = ""    # e.g. "DOT90004580"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # EXECUTION BROKER
-# Controls which executor places and manages trades.
 #
-#   "mt5"               — MetaTrader 5 (any broker: Deriv MT5, IC Markets, etc.)
 #   "deriv_multipliers" — Deriv's native Multipliers product via WebSocket
+#   "mt5"               — MetaTrader 5 (any broker: Deriv MT5, IC Markets, etc.)
 #
-# To use Deriv's own MT5 server, set EXECUTION_BROKER = "mt5" and point
-# your MT5 terminal at Deriv's MT5 gateway. No code changes needed.
+# To use Deriv's own MT5 server, set EXECUTION_BROKER = "mt5" and point your
+# MT5 terminal at Deriv's MT5 gateway. No code changes needed.
 # ─────────────────────────────────────────────────────────────────────────────
 
-EXECUTION_BROKER = "deriv_multipliers"   # "mt5" | "deriv_multipliers"
+# EXECUTION_BROKER = "deriv_multiplier"   # "deriv_multipliers" | "mt5"
 
+EXECUTION_BROKER = "mt5"   # "deriv_multipliers" | "mt5"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MT5 SETTINGS  (only used when EXECUTION_BROKER = "mt5")
 # ─────────────────────────────────────────────────────────────────────────────
 
-MT5_LOGIN    = 0      # Account number
-MT5_PASSWORD = ""     # Account password
-MT5_SERVER   = ""     # Broker server name (e.g. "Deriv-Server", "ICMarkets-Live01")
+MT5_LOGIN    = 32215077     # Account number (0 = use already-logged-in terminal)
+MT5_PASSWORD = "NikiMini!663"   # Account password
+MT5_SERVER   = "Deriv-Demo"   # Broker server (e.g. "Deriv-Server", "ICMarkets-Live01")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DERIV MULTIPLIERS SETTINGS  (only used when EXECUTION_BROKER = "deriv_multipliers")
-# Multipliers are Deriv's leveraged CFD-style product with SL/TP support.
 # ─────────────────────────────────────────────────────────────────────────────
 
-DERIV_MULTIPLIER        = 100    # Leverage multiplier (10, 20, 50, 100, 200, 500)
-DERIV_COMMISSION_PCT    = 0.05   # Commission per trade as % of stake (check your account)
-DERIV_STOP_OUT_LEVEL    = 0.10   # Position force-closed if equity drops to this % of stake
+DERIV_MULTIPLIER     = 100     # Leverage multiplier (10, 20, 50, 100, 200, 500)
+DERIV_MIN_STAKE      = 1.0     # Minimum stake in USD
+DERIV_MAX_STAKE      = 2000.0  # Maximum stake in USD
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TIMEFRAMES
 # Maps internal labels → Deriv granularity in seconds.
-# W1 and MN are not native on Deriv — resampled from D1 candles.
+# Deriv allowed values: 60, 120, 180, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 86400
+# W1 and MN are None — they are resampled from D1 automatically.
 # ─────────────────────────────────────────────────────────────────────────────
 
 TIMEFRAMES = {
@@ -128,7 +146,7 @@ SWING_SWEPT_TIMEFRAMES    = ["D1", "W1", "MN"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STRATEGY — STOP LOSS  (fixed for all trades)
+# STRATEGY — STOP LOSS
 # ─────────────────────────────────────────────────────────────────────────────
 
 SL_PIPS = 100
@@ -205,13 +223,9 @@ MIN_LOT_SIZE = 0.01
 MAX_LOT_SIZE = 10.0
 LOT_STEP     = 0.01
 
-# Deriv Multipliers: min/max stake in USD
-DERIV_MIN_STAKE = 1.0
-DERIV_MAX_STAKE = 2000.0
-
 
 # ─────────────────────────────────────────────────────────────────────────────
-# EXECUTION — HYBRID ORDER LOGIC  (only applies to MT5 executor)
+# EXECUTION — HYBRID ORDER LOGIC  (MT5 only)
 # ─────────────────────────────────────────────────────────────────────────────
 
 MARKET_ORDER_MAX_DISTANCE_PIPS = 20
