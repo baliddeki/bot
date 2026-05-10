@@ -1,17 +1,43 @@
 """
 signal_generator.py — Orchestrates the full signal generation pipeline.
 
-Full flow on each candle close:
-  1. Scan MN/W1/D1/H4 for a recently swept swing high or low
-  2. Classify the trade type (INTRADAY or SWING)
-  3. Find an Order Block on the permitted timeframes for that sweep
-  4. Confirm price is currently inside the OB zone
-  5. Search for the best FVG inside the OB across LTFs
-  6. Calculate entry, SL, and TP
-  7. Return a Signal (or None if any step fails)
+Strategy flow (Gold XAU/USD only):
+
+  1. Scan MN / W1 / D1 / H4 for a liquidation (wick sweep) of a swing
+     high or swing low on those timeframes.
+
+  2. Classify trade type:
+       H4 sweep  → INTRADAY  (quick 150/250-pip target)
+       D1/W1/MN  → SWING     (exit at key swing structure)
+
+  3. After the sweep, look for an Order Block that formed on a lower TF
+     as price reversed away from the swept level.
+
+       Swept TF    | Valid OB timeframes
+       ------------|--------------------
+       MN          | W1, D1
+       W1          | W1, D1
+       D1          | D1, H4, H2
+       H4          | H4, H2, H1
+
+  4. Confirm current price is inside the OB zone.
+
+  5. Find the best FVG inside the OB (scanning M3 → D1):
+       BUY  → lowest  gap_low  FVG (deepest support)
+       SELL → highest gap_high FVG (deepest resistance)
+
+  6. Entry = C3 wick of the FVG (limit order, never cancelled):
+       BUY  → fvg.gap_high  (C3.low  of bullish FVG)
+       SELL → fvg.gap_low   (C3.high of bearish FVG)
+
+  7. SL = 100 pips from entry.
+
+  8. TP:
+       INTRADAY → TP1 = 150 pips (50% close), TP2 = 250 pips (full close)
+       SWING    → Nearest swing high (BUY) or swing low (SELL) on swept TF
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Union
 import pandas as pd
 
@@ -42,17 +68,15 @@ class Signal:
     trade_type: str  # "INTRADAY" or "SWING"
     swept_tf: str  # TF whose swing was swept
     swept_swing: Union[SwingHigh, SwingLow]  # The swing that was swept
-    ob: OrderBlock  # The Order Block confirming the setup
-    fvg: FVG  # The FVG used for entry
-    entry: float
+    ob: OrderBlock
+    fvg: FVG
+    entry: float  # Limit order at C3 wick of FVG
     sl: float
-    tp1: Optional[
-        float
-    ]  # Primary TP (always set for intraday, may be None for swing until structure forms)
-    tp2: Optional[float]  # Secondary TP (intraday only; swing uses tp1)
-    ob_tf: str  # TF the OB was found on
-    fvg_tf: str  # TF the FVG was found on
-    rejection_reason: str = ""  # Populated if setup was rejected at any step
+    tp1: Optional[float]
+    tp2: Optional[float]  # Intraday only
+    ob_tf: str
+    fvg_tf: str
+    rejection_reason: str = ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,16 +90,10 @@ def generate_signal(
 ) -> Optional[Signal]:
     """
     Run the full signal generation pipeline.
-
-    Args:
-        candle_data:  Dict mapping TF label → OHLCV DataFrame (from OANDA).
-        current_time: Timestamp of the current candle close.
-
-    Returns:
-        A Signal if a valid setup is found, otherwise None.
+    Returns a Signal if all steps pass, otherwise None.
     """
 
-    # ── Step 1: Scan for a sweep on liquidation timeframes ────────────────
+    # ── Step 1: Find a sweep ──────────────────────────────────────────────
     sweep = _find_sweep(candle_data)
     if sweep is None:
         return None
@@ -84,12 +102,14 @@ def generate_signal(
     # ── Step 2: Classify trade type ───────────────────────────────────────
     trade_type = _classify_trade(swept_tf)
 
-    # ── Step 3: Find Order Block on permitted timeframes ──────────────────
-    ob = _find_ob(candle_data, swept_tf, direction, swept_swing.time)
+    # ── Step 3: Find OB that formed AFTER the sweep ───────────────────────
+    # After the sweep price reverses. We look for an OB that formed during
+    # or after that reversal — NOT one that pre-dated the sweep.
+    ob = _find_ob_after_sweep(candle_data, swept_tf, direction, swept_swing.time)
     if ob is None:
         return None
 
-    # ── Step 4: Confirm price is inside the OB zone ───────────────────────
+    # ── Step 4: Confirm price is currently inside the OB zone ─────────────
     current_price = _get_latest_price(candle_data)
     if current_price is None or not price_inside_ob(current_price, ob):
         return None
@@ -127,7 +147,7 @@ def generate_signal(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step implementations
+# Pipeline steps
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -135,11 +155,9 @@ def _find_sweep(
     candle_data: dict,
 ) -> Optional[tuple[str, str, Union[SwingHigh, SwingLow]]]:
     """
-    Check each liquidation timeframe for a recently swept swing.
-
-    Priority: MN → W1 → D1 → H4 (higher TF sweeps take precedence).
-
-    Returns (direction, swept_tf, swept_swing) or None.
+    Scan liquidation TFs from highest to lowest priority.
+    MN → W1 → D1 → H4 (higher TF sweep takes precedence).
+    Returns (direction, swept_tf, swing) or None.
     """
     for tf in config.LIQUIDATION_TIMEFRAMES:
         df = candle_data.get(tf)
@@ -156,21 +174,28 @@ def _find_sweep(
 
 
 def _classify_trade(swept_tf: str) -> str:
-    """Return "INTRADAY" or "SWING" based on which TF was swept."""
-    if swept_tf in config.INTRADAY_SWEPT_TIMEFRAMES:
-        return "INTRADAY"
-    return "SWING"
+    return "INTRADAY" if swept_tf in config.INTRADAY_SWEPT_TIMEFRAMES else "SWING"
 
 
-def _find_ob(
+def _find_ob_after_sweep(
     candle_data: dict,
     swept_tf: str,
     direction: str,
     sweep_time: pd.Timestamp,
 ) -> Optional[OrderBlock]:
     """
-    Search permitted OB timeframes for the most recent valid OB
-    that formed before the sweep candle.
+    Find the most recent OB on a permitted timeframe that formed AFTER
+    the sweep candle.
+
+    After a swing is liquidated, price reverses. During that reversal
+    an OB forms on a lower TF. We want the most recent such OB because
+    it is the freshest and most relevant supply/demand zone.
+
+    Permitted TFs per swept level:
+      MN  → W1, D1
+      W1  → W1, D1
+      D1  → D1, H4, H2
+      H4  → H4, H2, H1
     """
     permitted_tfs = config.OB_TIMEFRAME_RULES.get(swept_tf, [])
 
@@ -180,7 +205,9 @@ def _find_ob(
             continue
 
         blocks = find_order_blocks(df, tf)
-        ob = get_most_recent_ob(blocks, direction, before_time=sweep_time)
+
+        # Look for the most recent OB that formed AFTER the sweep time
+        ob = get_most_recent_ob(blocks, direction, after_time=sweep_time)
         if ob:
             return ob
 
@@ -188,7 +215,6 @@ def _find_ob(
 
 
 def _get_latest_price(candle_data: dict) -> Optional[float]:
-    """Get the most recent close price, falling back through TFs."""
     for tf in ["H1", "H4", "D1"]:
         df = candle_data.get(tf)
         if df is not None and not df.empty:
@@ -198,17 +224,21 @@ def _get_latest_price(candle_data: dict) -> Optional[float]:
 
 def _calculate_entry(fvg: FVG, direction: str) -> float:
     """
-    Entry at the FVG zone edge closest to current price.
-    BUY:  bottom of bullish FVG (C1.high of the FVG pattern)
-    SELL: top of bearish FVG (C1.low of the FVG pattern)
+    Limit order placed at the C3 wick of the FVG — the first level that
+    retracing price would touch when returning into the FVG zone.
+
+    Bullish FVG (BUY):  fvg.gap_high = C3.low  (bottom wick of C3)
+    Bearish FVG (SELL): fvg.gap_low  = C3.high (top wick of C3)
+
+    These orders are never cancelled — they sit until filled.
     """
     return fvg.gap_high if direction == "BUY" else fvg.gap_low
 
 
 def _calculate_sl(entry: float, direction: str) -> float:
-    """Fixed 100-pip stop loss from entry."""
-    sl_distance = config.pips_to_price(config.SL_PIPS)
-    return entry - sl_distance if direction == "BUY" else entry + sl_distance
+    """Fixed 100-pip SL from entry."""
+    dist = config.pips_to_price(config.SL_PIPS)
+    return entry - dist if direction == "BUY" else entry + dist
 
 
 def _calculate_tp(
@@ -219,15 +249,8 @@ def _calculate_tp(
     swept_tf: str,
 ) -> tuple[Optional[float], Optional[float]]:
     """
-    Calculate TP levels based on trade type.
-
-    Intraday:
-        TP1 = entry ± 150 pips (close 50%)
-        TP2 = entry ± 250 pips (close remaining 50%)
-
-    Swing:
-        TP1 = nearest swing high (BUY) or swing low (SELL) on the swept TF.
-        TP2 = None (dynamic — updated as new swings form during trade).
+    INTRADAY: TP1 = 150 pips (50% close), TP2 = 250 pips (full close).
+    SWING:    TP1 = nearest swing high/low on swept TF. TP2 = None.
     """
     if trade_type == "INTRADAY":
         tp1_dist = config.pips_to_price(config.INTRADAY_TP1_PIPS)
@@ -237,9 +260,7 @@ def _calculate_tp(
         else:
             return entry - tp1_dist, entry - tp2_dist
 
-    # Swing TP — nearest qualifying swing on the swept TF
-    tp1 = _find_nearest_swing_tp(entry, direction, candle_data, swept_tf)
-    return tp1, None
+    return _find_nearest_swing_tp(entry, direction, candle_data, swept_tf), None
 
 
 def _find_nearest_swing_tp(
@@ -248,19 +269,14 @@ def _find_nearest_swing_tp(
     candle_data: dict,
     swept_tf: str,
 ) -> Optional[float]:
-    """
-    Find the nearest swing high (BUY) or swing low (SELL) on the swept TF
-    that lies beyond the entry price.
-    """
+    """Nearest swing high (BUY) or swing low (SELL) beyond entry on swept TF."""
     df = candle_data.get(swept_tf)
     if df is None:
         return None
 
     if direction == "BUY":
-        highs = find_swing_highs(df)
-        candidates = [h.price for h in highs if h.price > entry]
+        candidates = [h.price for h in find_swing_highs(df) if h.price > entry]
         return min(candidates) if candidates else None
     else:
-        lows = find_swing_lows(df)
-        candidates = [l.price for l in lows if l.price < entry]
+        candidates = [l.price for l in find_swing_lows(df) if l.price < entry]
         return max(candidates) if candidates else None

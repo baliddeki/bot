@@ -15,7 +15,10 @@ Definitions (strict 3-candle patterns):
     Condition 2 (Sweep of C1):         C3.low  < C1.low
     OB Zone: [C2.low, C2.high]
 
-The OB is valid for entry when price returns into the OB zone after the sweep.
+Strategy flow:
+  The OB forms AFTER the higher-TF swing is swept. Price reverses
+  from the sweep, forms an OB on a lower TF during that reversal,
+  then retraces into the OB zone. Entry is from the FVG within the OB.
 """
 
 from dataclasses import dataclass
@@ -34,7 +37,7 @@ class OrderBlock:
     zone_high: float  # C2 high
     time: pd.Timestamp  # C2 candle time
     index: int  # C2 row index in its DataFrame
-    timeframe: str  # TF label this OB was identified on
+    timeframe: str
     c1_time: pd.Timestamp
     c3_time: pd.Timestamp
 
@@ -65,9 +68,10 @@ def _check_bullish_ob(
     timeframe: str,
 ) -> Optional[OrderBlock]:
     """
-    Bullish OB: C1 bullish, C2 bearish, C3 bullish.
-    C2.low < C3.low  (swing low condition).
-    C3.high > C1.high (sweep condition).
+    Bullish OB: C1 bullish → C2 bearish → C3 bullish.
+    C2.low < C3.low (swing low embedded).
+    C3.high > C1.high (sweep of C1).
+    OB zone = [C2.low, C2.high].
     """
     if not (_is_bullish(c1) and _is_bearish(c2) and _is_bullish(c3)):
         return None
@@ -96,9 +100,10 @@ def _check_bearish_ob(
     timeframe: str,
 ) -> Optional[OrderBlock]:
     """
-    Bearish OB: C1 bearish, C2 bullish, C3 bearish.
-    C2.high > C3.high (swing high condition).
-    C3.low  < C1.low  (sweep condition).
+    Bearish OB: C1 bearish → C2 bullish → C3 bearish.
+    C2.high > C3.high (swing high embedded).
+    C3.low < C1.low (sweep of C1).
+    OB zone = [C2.low, C2.high].
     """
     if not (_is_bearish(c1) and _is_bullish(c2) and _is_bearish(c3)):
         return None
@@ -126,21 +131,21 @@ def _check_bearish_ob(
 
 def find_order_blocks(df: pd.DataFrame, timeframe: str) -> list[OrderBlock]:
     """
-    Scan a DataFrame and return all valid order blocks (both directions).
-    Results are ordered oldest → newest.
+    Scan a DataFrame and return all valid OBs (both directions),
+    ordered oldest → newest.
     """
     blocks = []
 
     for i in range(1, len(df) - 1):
         c1, c2, c3 = df.iloc[i - 1], df.iloc[i], df.iloc[i + 1]
 
-        bull_ob = _check_bullish_ob(c1, c2, c3, i, timeframe)
-        if bull_ob:
-            blocks.append(bull_ob)
+        bull = _check_bullish_ob(c1, c2, c3, i, timeframe)
+        if bull:
+            blocks.append(bull)
 
-        bear_ob = _check_bearish_ob(c1, c2, c3, i, timeframe)
-        if bear_ob:
-            blocks.append(bear_ob)
+        bear = _check_bearish_ob(c1, c2, c3, i, timeframe)
+        if bear:
+            blocks.append(bear)
 
     return blocks
 
@@ -148,20 +153,31 @@ def find_order_blocks(df: pd.DataFrame, timeframe: str) -> list[OrderBlock]:
 def get_most_recent_ob(
     blocks: list[OrderBlock],
     direction: str,
+    after_time: Optional[pd.Timestamp] = None,
     before_time: Optional[pd.Timestamp] = None,
 ) -> Optional[OrderBlock]:
     """
     Return the most recent OB matching the given direction.
 
     Args:
-        blocks:      List of OrderBlock objects to search.
+        blocks:      All detected OBs.
         direction:   "BUY" or "SELL".
-        before_time: If provided, only consider OBs that formed before this time.
+        after_time:  Only consider OBs that formed AFTER this time.
+                     Use this to find OBs that formed after a sweep — the
+                     normal use case in this strategy.
+        before_time: Only consider OBs that formed BEFORE this time.
+                     Rarely needed; here for completeness.
     """
-    matching = [b for b in blocks if b.direction == direction and (before_time is None or b.time < before_time)]
+    matching = [
+        b
+        for b in blocks
+        if b.direction == direction
+        and (after_time is None or b.time >= after_time)
+        and (before_time is None or b.time <= before_time)
+    ]
     return matching[-1] if matching else None
 
 
 def price_inside_ob(price: float, ob: OrderBlock) -> bool:
-    """Return True if the given price is within the OB zone (inclusive)."""
+    """Return True if price is within the OB zone (inclusive)."""
     return ob.zone_low <= price <= ob.zone_high

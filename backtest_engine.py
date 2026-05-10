@@ -359,7 +359,9 @@ class BacktestEngine:
         )
 
         chart_path = ""
-        chart_df = candle_data.get(config.CHART_TIMEFRAME) or candle_data.get("H1")
+        chart_df = candle_data.get(config.CHART_TIMEFRAME)
+        if chart_df is None or chart_df.empty:
+            chart_df = candle_data.get("H1")
         if chart_df is not None and not chart_df.empty:
             chart_path = generate_setup_chart(chart_df, result)
 

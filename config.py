@@ -266,7 +266,7 @@ EVENT_LOG_FILE = "events.log"
 # ─────────────────────────────────────────────────────────────────────────────
 
 BACKTEST_INITIAL_BALANCE = 10_000
-BACKTEST_DATE_FROM       = datetime(2026, 1, 1)
+BACKTEST_DATE_FROM       = datetime(2025, 4, 1)
 BACKTEST_DATE_TO         = datetime(2026, 4, 30)
 
 
